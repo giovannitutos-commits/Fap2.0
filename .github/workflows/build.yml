@@ -33,8 +33,8 @@ jobs:
 
       - name: Decodificar APK original (smali, sem recursos)
         run: |
-          test -f original/FAP_Moderno_1_0_2.apk || { echo "Coloque o APK em original/FAP_Moderno_1_0_2.apk"; exit 1; }
-          java -Xmx5g -jar apktool.jar d --no-res -f original/FAP_Moderno_1_0_2.apk -o work
+          test -f original/FAP.apk || { echo "Coloque o APK em original/FAP.apk"; exit 1; }
+          java -Xmx5g -jar apktool.jar d --no-res -f original/FAP.apk -o work
 
       - name: Aplicar patch no smali
         run: python3 tools/patch_smali.py work
