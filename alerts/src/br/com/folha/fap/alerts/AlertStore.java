@@ -41,6 +41,12 @@ final class AlertStore {
     static int confirmSec() { return sp.getInt("confirm", 0); }
     static void confirmSec(int v) { sp.edit().putInt("confirm", clamp(v, 0, 30)).apply(); }
 
+    static boolean popup() { return sp.getBoolean("popup", false); }
+    static void popup(boolean v) { sp.edit().putBoolean("popup", v).apply(); }
+
+    static int color(int id) { return sp.getInt("col_" + id, 0xFFD32F2F); }
+    static void color(int id, int c) { sp.edit().putInt("col_" + id, c).apply(); }
+
     static boolean ruleOn(int id) { return sp.getBoolean("en_" + id, false); }
     static Double ruleMin(int id) { return parse(sp.getString("min_" + id, "")); }
     static Double ruleMax(int id) { return parse(sp.getString("max_" + id, "")); }
