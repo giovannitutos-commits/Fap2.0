@@ -1,0 +1,78 @@
+name: Build FAP Moderno com alertas
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Localizar Android SDK
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          PLAT=$(ls -d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
+          echo "BT=$BT" >> "$GITHUB_ENV"
+          echo "ANDROID_JAR=$PLAT/android.jar" >> "$GITHUB_ENV"
+
+      - name: Baixar apktool
+        run: |
+          URL=$(curl -sH "Authorization: Bearer ${{ github.token }}" \
+            https://api.github.com/repos/iBotPeaches/Apktool/releases/latest \
+            | jq -r '.assets[] | select(.name|endswith(".jar")) | .browser_download_url' | head -1)
+          echo "apktool: $URL"
+          curl -sL "$URL" -o apktool.jar
+
+      - name: Decodificar APK original (smali, sem recursos)
+        run: |
+          test -f original/FAP_Moderno_1_0_2.apk || { echo "Coloque o APK em original/FAP_Moderno_1_0_2.apk"; exit 1; }
+          java -Xmx5g -jar apktool.jar d --no-res -f original/FAP_Moderno_1_0_2.apk -o work
+
+      - name: Aplicar patch no smali
+        run: python3 tools/patch_smali.py work
+
+      - name: Recompilar APK
+        run: java -Xmx5g -jar apktool.jar b work -o unsigned.apk
+
+      - name: Compilar classes de alerta (Java -> dex)
+        run: |
+          mkdir -p classes dexout
+          javac --release 8 -cp "$ANDROID_JAR" -d classes $(find alerts/src -name '*.java')
+          "$BT/d8" --release --min-api 24 --lib "$ANDROID_JAR" --output dexout $(find classes -name '*.class')
+          ls -l dexout
+
+      - name: Injetar dex extra no APK
+        run: python3 tools/package.py unsigned.apk dexout/classes.dex merged.apk
+
+      - name: Alinhar e assinar
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > ks.jks
+            PASS="$KS_PASS"; ALIAS="$KS_ALIAS"
+          else
+            echo "Sem keystore nos secrets: gerando uma nova (o APK so atualiza por cima de builds com a mesma chave)"
+            PASS=android; ALIAS=fap
+            keytool -genkeypair -keystore ks.jks -alias fap -keyalg RSA -keysize 2048 \
+              -validity 36500 -storepass android -keypass android -dname "CN=FAP Alertas"
+          fi
+          "$BT/zipalign" -f -p 4 merged.apk aligned.apk
+          "$BT/apksigner" sign --ks ks.jks --ks-pass "pass:$PASS" --key-pass "pass:$PASS" \
+            --ks-key-alias "$ALIAS" --out FAP_Moderno_alertas.apk aligned.apk
+          "$BT/apksigner" verify --verbose FAP_Moderno_alertas.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FAP_Moderno_alertas
+          path: FAP_Moderno_alertas.apk
